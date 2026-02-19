@@ -1,0 +1,47 @@
+export const theme = {
+    colors: {
+        primary: '#2d8a6e',
+        primaryLight: '#3da882',
+        primaryDark: '#1f6b54',
+        primaryBg: '#e8f5f0',
+        secondary: '#f4a261',
+        secondaryLight: '#f7bc8a',
+        bg: '#fafaf7',
+        bgCard: '#ffffff',
+        bgSection: '#f5f3ee',
+        text: '#2c2c2c',
+        textSecondary: '#6b6b6b',
+        textLight: '#9a9a9a',
+        textInverse: '#ffffff',
+        border: '#e5e2db',
+        borderLight: '#f0ede6',
+        success: '#27ae60',
+        error: '#e74c3c',
+        kakao: '#FEE500',
+        kakaoHover: '#F5DC00',
+        kakaoText: '#191919',
+        naver: '#03C75A',
+        naverHover: '#02b351',
+    },
+    shadows: {
+        sm: '0 1px 3px rgba(0,0,0,0.06)',
+        md: '0 4px 12px rgba(0,0,0,0.08)',
+        lg: '0 8px 30px rgba(0,0,0,0.1)',
+        hover: '0 8px 25px rgba(45,138,110,0.15)',
+    },
+    radius: {
+        sm: '8px',
+        md: '12px',
+        lg: '16px',
+        xl: '24px',
+    },
+    headerHeight: '72px',
+    maxWidth: '1200px',
+    transition: {
+        fast: '0.15s ease',
+        base: '0.25s ease',
+        slow: '0.4s ease',
+    },
+} as const;
+
+export type Theme = typeof theme;
