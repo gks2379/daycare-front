@@ -8,6 +8,7 @@ import Centers from './pages/Centers';
 import CenterDetail from './pages/CenterDetail';
 import Reservation from './pages/Reservation';
 import MyPage from './pages/MyPage';
+import About from './pages/About';
 
 export default function App() {
   return (
@@ -16,6 +17,7 @@ export default function App() {
       <Routes>
         <Route element={<Layout />}>
           <Route path="/" element={<Home />} />
+          <Route path="/about" element={<About />} />
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />
           <Route path="/centers" element={<Centers />} />

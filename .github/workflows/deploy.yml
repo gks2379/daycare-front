@@ -1,0 +1,140 @@
+name: Deploy to OCI
+
+on:
+  push:
+    branches: [ "main" ]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          platforms: linux/arm64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy to OCI via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.OCI_HOST }}
+          username: ${{ secrets.OCI_USERNAME }}
+          key: ${{ secrets.OCI_KEY }}
+          envs: GITHUB_TOKEN
+          script: |
+            # Login to GHCR on the server
+            echo ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+            # Create deploy directory if not exists
+            mkdir -p ~/daycare-front-deploy
+
+            # Create/Update deploy script
+            cat << 'EOF' > ~/daycare-front-deploy/deploy.sh
+            #!/bin/bash
+
+            APP_NAME="daycare-front"
+            DOCKER_IMAGE_NAME="ghcr.io/gks2379/daycare-front:latest"
+            BLUE_PORT=3001
+            GREEN_PORT=3002
+
+            # Check if Blue is running
+            IS_BLUE=$(docker ps -f name=${APP_NAME}-blue -q)
+
+            if [ -z "$IS_BLUE" ]; then
+                echo "🔵 Blue container is NOT running. Deploying BLUE..."
+                TARGET_COLOR="blue"
+                TARGET_PORT=$BLUE_PORT
+                STOP_COLOR="green"
+            else
+                echo "🟢 Blue container is running. Deploying GREEN..."
+                TARGET_COLOR="green"
+                TARGET_PORT=$GREEN_PORT
+                STOP_COLOR="blue"
+            fi
+
+            # Pull new image
+            echo "📥 Pulling latest image..."
+            docker pull $DOCKER_IMAGE_NAME
+
+            # Run new container
+            echo "🚀 Starting $TARGET_COLOR container on port $TARGET_PORT..."
+            docker stop ${APP_NAME}-${TARGET_COLOR} 2>/dev/null || true
+            docker rm ${APP_NAME}-${TARGET_COLOR} 2>/dev/null || true
+
+            docker run -d --name ${APP_NAME}-${TARGET_COLOR} \
+              --network host \
+              -e NGINX_PORT=$TARGET_PORT \
+              $DOCKER_IMAGE_NAME \
+              /bin/sh -c "sed -i 's/listen 3000/listen $TARGET_PORT/' /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"
+
+            # Health Check
+            echo "🏥 Checking health..."
+            sleep 5
+
+            for i in {1..10}; do
+                RESPONSE=$(curl -s http://localhost:$TARGET_PORT/health)
+                if [[ "$RESPONSE" == *"UP"* ]]; then
+                    echo "✅ Health check passed!"
+                    break
+                fi
+                echo "⏳ Waiting for service... ($i/10)"
+                sleep 3
+            done
+
+            if [[ "$RESPONSE" != *"UP"* ]]; then
+                echo "❌ Health check failed! Rolling back..."
+                echo "📋 Container logs:"
+                docker logs ${APP_NAME}-${TARGET_COLOR} --tail 30
+                docker stop ${APP_NAME}-${TARGET_COLOR}
+                exit 1
+            fi
+
+            # Update Nginx upstream for frontend
+            echo "🔄 Switching Nginx frontend traffic to $TARGET_COLOR..."
+            echo "upstream frontend { server 127.0.0.1:$TARGET_PORT; }" | sudo tee /etc/nginx/conf.d/frontend-upstream.conf > /dev/null
+
+            sudo nginx -s reload || echo "⚠️ Nginx reload failed"
+
+            # Stop old container
+            echo "🛑 Stopping $STOP_COLOR container..."
+            docker stop ${APP_NAME}-${STOP_COLOR} 2>/dev/null || true
+            docker rm ${APP_NAME}-${STOP_COLOR} 2>/dev/null || true
+
+            echo "🎉 Frontend deployment successful!"
+            EOF
+
+            chmod +x ~/daycare-front-deploy/deploy.sh
+            ~/daycare-front-deploy/deploy.sh
